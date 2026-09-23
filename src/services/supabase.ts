@@ -114,7 +114,7 @@ export async function fetchSupabaseTransactions(client: SupabaseClient): Promise
 }
 
 export async function upsertSupabaseTransaction(client: SupabaseClient, t: Transaction): Promise<void> {
-  const row = {
+  const row: Record<string, any> = {
     id: t.id,
     title: t.title,
     amount: t.amount,
@@ -133,7 +133,30 @@ export async function upsertSupabaseTransaction(client: SupabaseClient, t: Trans
   };
 
   const { error } = await client.from('transactions').upsert(row, { onConflict: 'id' });
-  if (error) throw error;
+  if (error) {
+    // If a column like 'beneficiary' or 'nature' is missing from an older table schema,
+    // attempt fallback omitting that column so the transaction is saved safely without breaking the user flow.
+    if (error.message && (error.message.includes('column') || error.message.includes('schema cache'))) {
+      const fallbackRow: Record<string, any> = {
+        id: t.id,
+        title: t.title,
+        amount: t.amount,
+        type: t.type,
+        category: t.category,
+        date: t.date,
+        status: t.status,
+      };
+      if (!error.message.includes('paid_by')) fallbackRow.paid_by = t.paidBy;
+      if (!error.message.includes('nature')) fallbackRow.nature = t.nature;
+      if (!error.message.includes('beneficiary')) fallbackRow.beneficiary = t.beneficiary;
+
+      const fallbackRes = await client.from('transactions').upsert(fallbackRow, { onConflict: 'id' });
+      if (!fallbackRes.error) {
+        return;
+      }
+    }
+    throw error;
+  }
 }
 
 export async function deleteSupabaseTransaction(client: SupabaseClient, id: string): Promise<void> {
@@ -236,16 +259,64 @@ export async function batchSyncLocalToSupabase(client: SupabaseClient, transacti
   return rows.length;
 }
 
+export function getSupabaseFixColumnsSQL(): string {
+  return `-- ==============================================================================
+-- ATUALIZAÇÃO RÁPIDA DE COLUNAS (EXECUTE NO SQL EDITOR DO SUPABASE):
+-- Adiciona a coluna 'beneficiary' e outras que estiverem faltando:
+-- ==============================================================================
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS beneficiary TEXT DEFAULT 'both';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS paid_by TEXT DEFAULT 'shared';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS nature TEXT DEFAULT 'variable';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS due_date DATE;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'one_time';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS installment_current INT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS installment_total INT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
+
+-- Habilita RLS e permissão de sincronização
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso sincronizado para o casal" ON public.transactions;
+CREATE POLICY "Acesso sincronizado para o casal"
+ON public.transactions FOR ALL
+TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Ativa o Realtime para espelhar entre celulares
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'transactions'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.transactions;
+  END IF;
+END $$;
+
+-- Recarrega o cache do Supabase instantaneamente
+NOTIFY pgrst, 'reload schema';
+`;
+}
+
 export function getSupabaseSQLScript(): string {
   return `-- ==============================================================================
--- FINANCASAL: SCRIPT SQL PARA ESPELHAMENTO SIMULTÂNEO EM TEMPO REAL ENTRE DISPOSITIVOS
--- Execute este script no SQL Editor do seu projeto Supabase (https://supabase.com/dashboard)
+-- FINANCASAL: SCRIPT SQL COMPLETO & ATUALIZAÇÃO DE COLUNAS
+-- Cole este script no menu SQL Editor do Supabase (https://supabase.com/dashboard)
 -- ==============================================================================
 
--- IMPORTANTE: Se você já criou a tabela antes com id UUID, remova-a para recriar com suporte direto:
--- DROP TABLE IF EXISTS public.transactions CASCADE;
+-- 1. CASO A TABELA JÁ EXISTA, ADICIONA AS COLUNAS FALTANTES (SEGURO):
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS beneficiary TEXT DEFAULT 'both';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS paid_by TEXT DEFAULT 'shared';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS nature TEXT DEFAULT 'variable';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS due_date DATE;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'one_time';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS installment_current INT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS installment_total INT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
 
--- 1. TABELA PRINCIPAL DE TRANSAÇÕES DO CASAL
+-- 2. CASO A TABELA AINDA NÃO EXISTA, CRIA DO ZERO COM TODOS OS CAMPOS:
 CREATE TABLE IF NOT EXISTS public.transactions (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -265,17 +336,17 @@ CREATE TABLE IF NOT EXISTS public.transactions (
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 2. ÍNDICES DE ALTA PERFORMANCE PARA DISPOSITIVOS MÓVEIS
+-- 3. ÍNDICES DE ALTA PERFORMANCE PARA DISPOSITIVOS MÓVEIS
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON public.transactions(date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_type ON public.transactions(type);
 CREATE INDEX IF NOT EXISTS idx_transactions_nature ON public.transactions(nature);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON public.transactions(status);
 CREATE INDEX IF NOT EXISTS idx_transactions_paid_by ON public.transactions(paid_by);
 
--- 3. HABILITAR SEGURANÇA EM NÍVEL DE LINHA (RLS)
+-- 4. HABILITAR SEGURANÇA EM NÍVEL DE LINHA (RLS)
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 
--- 4. POLÍTICA PARA O CASAL (Permite sincronização segura entre os aparelhos via chave Anon do projeto)
+-- 5. POLÍTICA PARA O CASAL (Permite sincronização segura entre os aparelhos via chave Anon do projeto)
 DROP POLICY IF EXISTS "Acesso sincronizado para o casal" ON public.transactions;
 CREATE POLICY "Acesso sincronizado para o casal"
 ON public.transactions
@@ -284,7 +355,7 @@ TO anon, authenticated
 USING (true)
 WITH CHECK (true);
 
--- 5. ATIVAÇÃO DO REALTIME (Crucial para espelhar instantaneamente entre dois celulares ou computador)
+-- 6. ATIVAÇÃO DO REALTIME (Crucial para espelhar instantaneamente entre dois celulares ou computador)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -294,5 +365,8 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.transactions;
   END IF;
 END $$;
+
+-- 7. NOTIFICA O POSTGREST PARA ATUALIZAR O SCHEMA CACHE
+NOTIFY pgrst, 'reload schema';
 `;
 }

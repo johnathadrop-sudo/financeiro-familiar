@@ -258,9 +258,12 @@ export default function App() {
         setSupabaseConnected(true);
       } catch (err: any) {
         console.error('Erro ao sincronizar com Supabase:', err);
+        const msg = err.message?.includes('beneficiary')
+          ? "A tabela 'transactions' no Supabase precisa da coluna 'beneficiary'. Clique em 'Abrir Configuração' e copie a 'Correção (ALTER TABLE)'."
+          : `Erro ao espelhar no Supabase: ${err.message || 'Verifique a estrutura da tabela'}. Abra as configurações para copiar o SQL.`;
         setSyncAlert({
           type: 'error',
-          message: `Erro ao espelhar no Supabase: ${err.message || 'Verifique a estrutura da tabela'}. Abra as configurações para copiar o SQL.`,
+          message: msg,
         });
       }
     }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Database, CheckCircle2, AlertCircle, Copy, Check, ExternalLink, CloudUpload, KeyRound, Globe, Terminal, Smartphone, Share2, Send, Radio } from 'lucide-react';
-import { testSupabaseConnection, getSupabaseSQLScript, batchSyncLocalToSupabase, getSupabaseClient, generatePairingUrl } from '../services/supabase';
+import { testSupabaseConnection, getSupabaseSQLScript, getSupabaseFixColumnsSQL, batchSyncLocalToSupabase, getSupabaseClient, generatePairingUrl } from '../services/supabase';
 import { CoupleSettings, Transaction } from '../types/finance';
 
 interface SupabaseConfigModalProps {
@@ -25,6 +25,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [copiedSQL, setCopiedSQL] = useState(false);
+  const [copiedFixSQL, setCopiedFixSQL] = useState(false);
   const [copiedPairing, setCopiedPairing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
@@ -32,6 +33,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
   if (!isOpen) return null;
 
   const sqlScript = getSupabaseSQLScript();
+  const fixScript = getSupabaseFixColumnsSQL();
 
   const handleTestConnection = async () => {
     if (!url.trim() || !anonKey.trim()) {
@@ -210,32 +212,57 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
 
           {/* SQL Setup Instruction */}
           <div className="space-y-3 bg-neutral-50 p-4 rounded-xl border border-neutral-200/80">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-bold text-neutral-900 flex items-center gap-2">
                 <Terminal className="w-3.5 h-3.5 text-emerald-600" />
-                <span>2. Criação da Tabela no Supabase (Script SQL)</span>
+                <span>2. Script SQL & Correção de Colunas</span>
               </h4>
-              <button
-                type="button"
-                onClick={handleCopySQL}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 bg-white border border-neutral-200 hover:bg-neutral-100 rounded-md transition-colors cursor-pointer"
-              >
-                {copiedSQL ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="text-emerald-700">Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copiar SQL</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(fixScript);
+                    setCopiedFixSQL(true);
+                    setTimeout(() => setCopiedFixSQL(false), 2500);
+                  }}
+                  title="Execute este comando se der erro de coluna faltando (beneficiary, paid_by)"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-800 bg-emerald-100/70 border border-emerald-300 hover:bg-emerald-200 rounded-md transition-colors cursor-pointer"
+                >
+                  {copiedFixSQL ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Comando Copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Copiar Correção (ALTER TABLE)</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopySQL}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 bg-white border border-neutral-200 hover:bg-neutral-100 rounded-md transition-colors cursor-pointer"
+                >
+                  {copiedSQL ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700">Copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copiar SQL Completo</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
             
             <p className="text-neutral-500">
-              Copie o código abaixo e cole no menu <strong>SQL Editor</strong> do seu painel Supabase. Ele cria a tabela <code className="font-mono bg-neutral-200 px-1 py-0.5 rounded text-[11px]">transactions</code> e as permissões de acesso.
+              Cole no menu <strong>SQL Editor</strong> do seu painel Supabase. Se você viu o aviso sobre a coluna <em>'beneficiary'</em>, o botão <strong>Copiar Correção</strong> adiciona os campos faltantes à sua tabela existente em 1 segundo sem apagar nada!
             </p>
 
             <pre className="p-3 bg-neutral-900 text-neutral-200 rounded-lg font-mono text-[11px] overflow-x-auto max-h-36 leading-relaxed">
