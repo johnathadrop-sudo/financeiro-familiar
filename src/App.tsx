@@ -24,7 +24,10 @@ import {
   upsertSupabaseTransaction,
   deleteSupabaseTransaction,
   getEffectiveSupabaseConfig,
+  subscribeToTransactions,
+  parsePairingUrl,
 } from './services/supabase';
+import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 
 const STORAGE_KEY_TRANSACTIONS = 'financasal_transactions_v2';
 const STORAGE_KEY_SETTINGS = 'financasal_settings_v1';
@@ -75,8 +78,39 @@ export default function App() {
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
-  // Supabase live status
+  // Supabase live status & Sync alerts
   const [supabaseConnected, setSupabaseConnected] = useState(false);
+  const [syncAlert, setSyncAlert] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  // Auto-detect pairing URL on mobile / second device on mount
+  useEffect(() => {
+    const paired = parsePairingUrl();
+    if (paired) {
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          supabaseUrl: paired.url,
+          supabaseAnonKey: paired.key,
+          useSupabase: true,
+        };
+        try {
+          localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      // Clear the url hash or query param cleanly without reload
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+
+      setSyncAlert({
+        type: 'success',
+        message: 'Celular pareado com sucesso! Sincronizando finanças do casal em tempo real...',
+      });
+      setTimeout(() => setSyncAlert(null), 6000);
+    }
+  }, []);
 
   // Save to localStorage whenever data changes
   useEffect(() => {
@@ -95,7 +129,7 @@ export default function App() {
     }
   }, [transactions]);
 
-  // Check Supabase connection on mount / config change
+  // Connect to Supabase, listen for Realtime events and smart-poll fallback
   useEffect(() => {
     const config = getEffectiveSupabaseConfig(settings.supabaseUrl, settings.supabaseAnonKey);
     if (!config.isConfigured) {
@@ -109,19 +143,48 @@ export default function App() {
       return;
     }
 
-    // Try fetching from Supabase
-    fetchSupabaseTransactions(client)
-      .then((remoteData) => {
+    let isSubscribed = true;
+
+    // Refresh function for fetching latest data
+    const refreshData = async () => {
+      try {
+        const remoteData = await fetchSupabaseTransactions(client);
+        if (!isSubscribed) return;
         setSupabaseConnected(true);
-        if (remoteData.length > 0) {
-          // If remote has data, merge or prefer remote
-          setTransactions(remoteData);
-        }
-      })
-      .catch((err) => {
-        console.warn('Supabase não conectado ou tabela ausente:', err.message);
+        setTransactions(remoteData);
+      } catch (err: any) {
+        if (!isSubscribed) return;
+        console.warn('Erro ao atualizar dados do Supabase:', err.message);
         setSupabaseConnected(false);
-      });
+        if (err.code === '42P01') {
+          setSyncAlert({
+            type: 'error',
+            message: 'A tabela "transactions" ainda precisa ser criada no Supabase com o Script SQL.',
+          });
+        }
+      }
+    };
+
+    // 1. Initial fetch
+    refreshData();
+
+    // 2. Realtime WebSocket subscription (receives instant INSERT, UPDATE, DELETE from partner)
+    const unsubscribe = subscribeToTransactions(client, () => {
+      refreshData();
+    });
+
+    // 3. Smart poll fallback every 4 seconds when the window is focused (ideal for mobile multitasking)
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshData();
+      }
+    }, 4000);
+
+    return () => {
+      isSubscribed = false;
+      unsubscribe();
+      clearInterval(pollInterval);
+    };
   }, [settings.supabaseUrl, settings.supabaseAnonKey]);
 
   // Filter transactions for the selected month & year (and partner if selected)
@@ -187,13 +250,18 @@ export default function App() {
       return [fullTx, ...prev];
     });
 
-    // Sync to Supabase if connected
+    // Sync to Supabase if client is available
     const client = getSupabaseClient(settings.supabaseUrl, settings.supabaseAnonKey);
-    if (client && supabaseConnected) {
+    if (client) {
       try {
         await upsertSupabaseTransaction(client, fullTx);
-      } catch (err) {
+        setSupabaseConnected(true);
+      } catch (err: any) {
         console.error('Erro ao sincronizar com Supabase:', err);
+        setSyncAlert({
+          type: 'error',
+          message: `Erro ao espelhar no Supabase: ${err.message || 'Verifique a estrutura da tabela'}. Abra as configurações para copiar o SQL.`,
+        });
       }
     }
   };
@@ -202,11 +270,15 @@ export default function App() {
     setTransactions((prev) => prev.filter((t) => t.id !== id));
 
     const client = getSupabaseClient(settings.supabaseUrl, settings.supabaseAnonKey);
-    if (client && supabaseConnected) {
+    if (client) {
       try {
         await deleteSupabaseTransaction(client, id);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Erro ao deletar no Supabase:', err);
+        setSyncAlert({
+          type: 'error',
+          message: `Erro ao deletar no Supabase: ${err.message}`,
+        });
       }
     }
   };
@@ -221,11 +293,15 @@ export default function App() {
     setTransactions((prev) => prev.map((t) => (t.id === id ? updatedTx : t)));
 
     const client = getSupabaseClient(settings.supabaseUrl, settings.supabaseAnonKey);
-    if (client && supabaseConnected) {
+    if (client) {
       try {
         await upsertSupabaseTransaction(client, updatedTx);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Erro ao atualizar status no Supabase:', err);
+        setSyncAlert({
+          type: 'error',
+          message: `Erro ao atualizar status no Supabase: ${err.message}`,
+        });
       }
     }
   };
@@ -250,6 +326,42 @@ export default function App() {
       {/* Main Viewport Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
+        {/* Realtime Sync / Pairing Alert Banner */}
+        {syncAlert && (
+          <div
+            className={`mb-4 p-3.5 rounded-xl border text-xs flex items-center justify-between shadow-2xs animate-in fade-in slide-in-from-top-2 duration-200 ${
+              syncAlert.type === 'success'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                : 'bg-rose-50 border-rose-300 text-rose-900'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              {syncAlert.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span className="font-medium">{syncAlert.message}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {syncAlert.type === 'error' && (
+                <button
+                  onClick={() => setIsSupabaseModalOpen(true)}
+                  className="px-2.5 py-1 bg-white border border-rose-200 hover:bg-rose-100 rounded-md font-bold text-rose-800 transition-colors cursor-pointer"
+                >
+                  Abrir Configuração
+                </button>
+              )}
+              <button
+                onClick={() => setSyncAlert(null)}
+                className="p-1 hover:bg-black/5 rounded-md transition-colors cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Month Selector and Partner Filter Bar */}
         <MonthSelector
           selectedYear={selectedYear}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Database, Settings as SettingsIcon, Heart, CheckCircle2, CloudOff } from 'lucide-react';
+import { Plus, Database, Settings as SettingsIcon, Heart, CheckCircle2, CloudOff, Smartphone, Radio } from 'lucide-react';
 import { CoupleSettings } from '../types/finance';
 
 interface HeaderProps {
@@ -76,23 +76,40 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Zone 3: Primary Actions */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Espelhar no 2º Celular / WhatsApp */}
+            <button
+              onClick={onOpenSupabaseConfig}
+              title="Espelhar no celular da esposa / 2º aparelho"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="hidden sm:inline">Espelhar Celular</span>
+            </button>
+
             {/* Supabase status badge / button */}
             <button
               onClick={onOpenSupabaseConfig}
               title={
                 supabaseConnected
-                  ? 'Supabase sincronizado e conectado'
-                  : 'Configurar banco de dados Supabase'
+                  ? 'Supabase conectado: Sincronização em tempo real ativa!'
+                  : 'Configurar banco de dados Supabase para espelhar com a esposa'
               }
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                 supabaseConnected
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                  ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
                   : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
               }`}
             >
-              <Database className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">
-                {supabaseConnected ? 'Supabase Conectado' : 'Conectar Supabase'}
+              {supabaseConnected ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              ) : (
+                <Database className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden md:inline">
+                {supabaseConnected ? 'Tempo Real Ativo' : 'Conectar Supabase'}
               </span>
               {supabaseConnected ? (
                 <CheckCircle2 className="w-3 h-3 text-emerald-600 ml-0.5" />

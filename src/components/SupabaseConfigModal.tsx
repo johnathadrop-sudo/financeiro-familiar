@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Database, CheckCircle2, AlertCircle, Copy, Check, ExternalLink, CloudUpload, KeyRound, Globe, Terminal } from 'lucide-react';
-import { testSupabaseConnection, getSupabaseSQLScript, batchSyncLocalToSupabase, getSupabaseClient } from '../services/supabase';
+import { X, Database, CheckCircle2, AlertCircle, Copy, Check, ExternalLink, CloudUpload, KeyRound, Globe, Terminal, Smartphone, Share2, Send, Radio } from 'lucide-react';
+import { testSupabaseConnection, getSupabaseSQLScript, batchSyncLocalToSupabase, getSupabaseClient, generatePairingUrl } from '../services/supabase';
 import { CoupleSettings, Transaction } from '../types/finance';
 
 interface SupabaseConfigModalProps {
@@ -25,6 +25,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [copiedSQL, setCopiedSQL] = useState(false);
+  const [copiedPairing, setCopiedPairing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
@@ -242,11 +243,77 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
             </pre>
           </div>
 
+          {/* Device Pairing Section for Couple */}
+          <div className="space-y-3 bg-gradient-to-br from-emerald-50 to-teal-50/70 p-4 rounded-xl border border-emerald-300/80 shadow-xs">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-emerald-950 flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-emerald-700" />
+                <span>3. Espelhar no 2º Celular (Esposa / Parceiro)</span>
+              </h4>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                <Radio className="w-3 h-3 text-emerald-600 animate-pulse" />
+                Tempo Real
+              </span>
+            </div>
+            
+            <p className="text-neutral-700 leading-relaxed">
+              Para seu parceiro ou esposa acessar as mesmas finanças sem precisar digitar códigos longos, basta enviar este link seguro. Ao abrir no celular dele(a), o app <strong>conecta e espelha tudo automaticamente</strong> em tempo real!
+            </p>
+
+            {url.trim() && anonKey.trim() ? (
+              <div className="space-y-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const link = generatePairingUrl(url, anonKey);
+                      navigator.clipboard.writeText(link);
+                      setCopiedPairing(true);
+                      setTimeout(() => setCopiedPairing(false), 2500);
+                    }}
+                    className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer shadow-xs"
+                  >
+                    {copiedPairing ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Link Copiado com Sucesso!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" />
+                        <span>Copiar Link de Acesso do Casal</span>
+                      </>
+                    )}
+                  </button>
+
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                      `Oi amor! Aqui está o link das nossas finanças no FinanCasal. Ao clicar, suas finanças já ficam espelhadas e sincronizadas comigo em tempo real: ${generatePairingUrl(url, anonKey)}`
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer shadow-xs"
+                  >
+                    <Send className="w-4 h-4 text-emerald-600" />
+                    <span>Enviar no WhatsApp</span>
+                  </a>
+                </div>
+                <p className="text-[11px] text-emerald-800 font-medium">
+                  ✓ Qualquer alteração feita em um celular aparecerá no outro instantaneamente!
+                </p>
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-lg bg-white/80 border border-amber-200 text-amber-800 text-[11px]">
+                Preencha a <strong>URL</strong> e a <strong>Anon Key</strong> no passo 1 acima para gerar o link de compartilhamento para o celular do parceiro.
+              </div>
+            )}
+          </div>
+
           {/* Local data upload */}
-          <div className="space-y-2 bg-emerald-50/60 p-4 rounded-xl border border-emerald-200/80">
-            <h4 className="font-bold text-emerald-950 flex items-center gap-2">
+          <div className="space-y-2 bg-neutral-50 p-4 rounded-xl border border-neutral-200/80">
+            <h4 className="font-bold text-neutral-900 flex items-center gap-2">
               <CloudUpload className="w-3.5 h-3.5 text-emerald-700" />
-              <span>3. Sincronizar Dados Atuais para o Supabase</span>
+              <span>4. Enviar Dados Atuais para o Supabase</span>
             </h4>
             <p className="text-neutral-600">
               Gostaria de enviar todos os lançamentos cadastrados nesta sessão para a sua tabela no Supabase?
