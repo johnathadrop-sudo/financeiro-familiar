@@ -1,0 +1,8 @@
+{
+  "name": "FinanCasal - Gestor Financeiro a Dois",
+  "description": "Gestor financeiro inteligente, limpo e descomplicado para casais. Controle receitas, despesas fixas e variáveis, divisão de contas e sincronização pronta para Supabase e Vercel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
